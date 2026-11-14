@@ -1,0 +1,4 @@
+interface:
+  display_name: "黑底硫酸纸画卡"
+  short_description: "Design black vellum art cards with editable PDFs"
+  default_prompt: "用 $black-parchment-cards 把参考图片做成黑底硫酸纸画卡，导出 Affinity 可编辑 PDF。"

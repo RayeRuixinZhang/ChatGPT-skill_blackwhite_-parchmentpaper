@@ -16,6 +16,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 
+MIN_ARTWORK_PPI = 300
+
+
 def register_font(family, supplied):
     if supplied is None and shutil.which("fc-match"):
         match = subprocess.run(
@@ -76,6 +79,13 @@ def prepare(item, base, width, height, glyphs, image_field="image"):
         image = ImageOps.exif_transpose(source).convert("RGBA")
     ratio = min(iw/image.width, ih/image.height)
     w, h = image.width*ratio, image.height*ratio
+    effective_ppi = 72 / ratio
+    if effective_ppi < MIN_ARTWORK_PPI - 1e-9:
+        raise ValueError(
+            f"Artwork is {effective_ppi:.2f} ppi at the placed size "
+            f"({w/mm:.2f} × {h/mm:.2f} mm). "
+            f"Use an original with at least {MIN_ARTWORK_PPI} ppi at that size."
+        )
     art = (ImageReader(image), ix+(iw-w)/2, iy+(ih-h)/2, w, h)
 
     blocks = []

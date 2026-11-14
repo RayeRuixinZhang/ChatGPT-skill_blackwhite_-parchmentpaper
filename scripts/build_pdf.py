@@ -64,7 +64,7 @@ def wrap_words(value, font, size, width):
     return [*lines, current]
 
 
-def prepare(item, base, width, height, glyphs):
+def prepare(item, base, width, height, glyphs, image_field="image"):
     ix, iy, iw, ih = box(item["image_box"], width, height)
     tx, ty, tw, th = box(item["text_box"], width, height)
     if max(ix, tx) < min(ix+iw, tx+tw)-1e-6 and max(iy, ty) < min(iy+ih, ty+th)-1e-6:
@@ -72,7 +72,7 @@ def prepare(item, base, width, height, glyphs):
     align = item.get("align", "left")
     if align not in ("left", "center"):
         raise ValueError("align must be left or center.")
-    with Image.open(base/item["image"]) as source:
+    with Image.open(base/item[image_field]) as source:
         image = ImageOps.exif_transpose(source).convert("RGBA")
     ratio = min(iw/image.width, ih/image.height)
     w, h = image.width*ratio, image.height*ratio
@@ -150,6 +150,11 @@ def main():
     parser.add_argument("--poem-font", type=Path)
     parser.add_argument("--size-mm", nargs=2, type=float, default=(50,100))
     parser.add_argument("--a4", action="store_true")
+    parser.add_argument(
+        "--palette", choices=("low-saturation", "original-color", "both"),
+        default="low-saturation",
+        help="Select the artwork palette. Both writes two PDFs with palette suffixes.",
+    )
     args = parser.parse_args()
     try:
         width, height = (value*mm for value in args.size_mm)
@@ -162,13 +167,31 @@ def main():
         cards = json.loads(args.manifest.read_text(encoding="utf-8"))["cards"]
         if not cards or not isinstance(cards,list):
             raise ValueError("cards must be a nonempty list.")
-        items = []
-        for index, card in enumerate(cards,1):
-            try:
-                items.append(prepare(card,args.manifest.parent,width,height,glyphs))
-            except (ValueError, TypeError, KeyError, OSError) as exc:
-                raise ValueError(f"Card {index}: {exc}") from exc
-        export(args.output,items,width,height,args.a4)
+        variants = {
+            "low-saturation": "image",
+            "original-color": "image_color",
+        }
+        if args.palette != "both":
+            variants = {args.palette: variants[args.palette]}
+        exports = []
+        for palette, image_field in variants.items():
+            items = []
+            for index, card in enumerate(cards, 1):
+                try:
+                    if image_field == "image_color":
+                        with Image.open(args.manifest.parent / card["image"]) as low:
+                            with Image.open(args.manifest.parent / card[image_field]) as color:
+                                if ImageOps.exif_transpose(low).size != ImageOps.exif_transpose(color).size:
+                                    raise ValueError("Both artwork palettes must share the same canvas size.")
+                    items.append(prepare(card, args.manifest.parent, width, height, glyphs, image_field))
+                except (ValueError, TypeError, KeyError, OSError) as exc:
+                    raise ValueError(f"{palette}, card {index}: {exc}") from exc
+            destination = args.output
+            if args.palette == "both":
+                destination = args.output.with_name(f"{args.output.stem}-{palette}{args.output.suffix}")
+            exports.append((destination, items))
+        for destination, items in exports:
+            export(destination, items, width, height, args.a4)
     except (ValueError, TypeError, KeyError, OSError) as exc:
         parser.exit(1,f"{exc}\n")
 
